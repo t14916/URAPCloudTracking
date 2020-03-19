@@ -31,6 +31,7 @@ def readDLData(date, time):
         [0 if y[i] <= 6e-5 or (min_range_index >= i or i >= max_range_index) else y[i] for i in range(len(y))]
         for y in attenuated_backscatter]
     radial_velocity = f.variables['radial_velocity'][:]
+
     cloud = []
     removed_rows = []
     for i in range(len(attenuated_backscatter)):
@@ -59,7 +60,79 @@ def readDLData(date, time):
     f.close()
     return return_dict
 
+def clusterClouds(date, time_ld, time_sonde):
+    data_ld = readDLData(date, time_ld)
+    data_sonde = readSondeData(date, time_sonde)
 
+    plt.ylabel('Height (m)')
+    plt.xlabel('Time (h)')
+    y = [item[0] for sublist in data_ld["cloud"] for item in sublist]
+    rv = [item[1] for sublist in data_ld["cloud"] for item in sublist]
+
+    x = []
+    for i in range(len(data_ld["time"])):
+        for _ in range(len(data_ld["cloud"][i])):
+            x.append(data_ld["time"][i])
+
+    u_wind = []
+    v_wind = []
+    for i in range(len(y)):
+        index = find_approx_value_index(data_sonde["altitude"], y[i], 5)
+        if index == -1:
+            print("failed to find range")
+        u_wind.append(data_sonde["u_wind"][index])
+        v_wind.append(data_sonde["v_wind"][index])
+
+    velocity = []
+    for i in range(len(u_wind)):
+        velocity.append(math.sqrt(u_wind[i] ** 2 + v_wind[i] ** 2))
+
+    # print(velocity)
+    # 100m separation using speed
+    t_s = [200 / v for v in velocity]
+
+    # 300m mininum length
+    t_ll = [300 / v for v in velocity]
+
+    # 5000m maximum length
+    t_lh = [5000 / v for v in velocity]
+
+    clusters = map_clusters(y, data_sonde["altitude"], x, t_s, t_ll, t_lh)
+    groups = condense_common_values(clusters)
+
+    condensed_x = []
+    condensed_y = []
+    condensed_rv = []
+    condensed_clusters = []
+    for i in range(len(clusters)):
+        if clusters[i] != 0:
+            condensed_x.append(x[i])
+            condensed_y.append(y[i])
+            condensed_rv.append(rv[i])
+            condensed_clusters.append(clusters[i])
+
+    temp = zip(condensed_clusters, condensed_x, condensed_y, condensed_rv)
+    #print(temp)
+    #print(condensed_rv)
+    cloud_data = []
+    for i in range(len(groups)):
+        cloud_data.append([])
+        for t in temp:
+            if t[0] != groups[i]:
+                break
+            cloud_data[i].append(t[1:])
+
+    # clouds provided as separate lists, in time order
+    # clouds formatted as tuples with (time (s), altitude (m), radial_velocity (m/s))
+    return cloud_data
+
+
+def condense_common_values(list):
+    condensed = []
+    for x in list:
+        if x not in condensed:
+            condensed.append(x)
+    return condensed
 def plotCloud(date, time_ld, time_sonde):
     # threshold separation = 100m
     # threshold valid cloud > 300m -> 5000m
@@ -135,18 +208,18 @@ def map_clusters(cloud_height, altitude, time, t_s, t_ll, t_lh):
     color_map = [1]
     curr_cluster = 1
     t_start = 0
-    print(time[0], time[-1])
-    #print(cloud_height)
+    # print(time[0], time[-1])
+    # print(cloud_height)
     for i in range(1, len(time)):
-        #print("({}, {})".format(time[i], cloud[i]))
+        # print("({}, {})".format(time[i], cloud[i]))
         thresh_index = find_approx_value_index(altitude, cloud_height[i], 5)
         if time[i] - time[i - 1] < t_s[thresh_index] and time[i] - time[t_start] < t_lh[thresh_index]:
              color_map.append(curr_cluster)
         else:
-            #print("time before: {} time after: {}".format(time[i-1], time[i]))
-            #print(i)
-            print("time seperation: {} threshold: {}".format(time[i] - time[i - 1], t_s[i]))
-            print("cloud length: {} min length: {} max length: {}".format(time[i - 1] - time[t_start], t_ll[i], t_lh[i]))
+            # print("time before: {} time after: {}".format(time[i-1], time[i]))
+            # print(i)
+            # print("time seperation: {} threshold: {}".format(time[i] - time[i - 1], t_s[i]))
+            # print("cloud length: {} min length: {} max length: {}".format(time[i - 1] - time[t_start], t_ll[i], t_lh[i]))
             if time[i - 1] - time[t_start] < t_ll[thresh_index]:
                 curr_cluster -= 1
                 for j in range(t_start, i):
@@ -156,7 +229,7 @@ def map_clusters(cloud_height, altitude, time, t_s, t_ll, t_lh):
             t_start = i
     return color_map
 
-def find_approx_value_index( list, value, threshold):
+def find_approx_value_index(list, value, threshold):
     for i in range(len(list)):
         if value - threshold < list[i] < value + threshold:
             return i
@@ -219,10 +292,10 @@ def readSondeData(date, time):
 def readCOGSData():
     return 0
 
-
 date = 20180504
-#time_ld = 200117
-time_ld = 210116
+time_ld = 200117
+#time_ld = 210116
 time_sonde = 233600
-plotCloud(date, time_ld, time_sonde)
-
+#plotCloud(date, time_ld, time_sonde)
+temp = clusterClouds(date, time_ld, time_sonde)
+print(temp)
