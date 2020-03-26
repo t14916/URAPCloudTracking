@@ -15,35 +15,34 @@ def readDLData(date, time):
     "range" : height which the DL return belongs to
     "radial_velocity" : 2D array of velocities
     "cloud" : 2D array with tuple data of the height and velocity of the clouds
+    "bottom_cloud" : same format as cloud, but with height < 500m
+    "bottom_range" : same format as range, but with height < 500m
+    NOTE: "bottom_cloud" is often empty so include checks for this case
     """
     filename = "sgpdlfptC1.b1." + str(date) + "." + str(time) + ".cdf"
     f = Dataset(filename, "r", format="NETCDF4")
     return_dict = {}
 
     time = f.variables['time'][:]
-    range_var = enumerate(f.variables['range'][:])
+    range_var = list(enumerate(f.variables['range'][:]))
+    temp = range_var[:]
+    bottom_range_var = [r for r in temp if r[1] < 500]
     range_var = [r for r in range_var if 500 < r[1] < 5000]
 
     min_range_index = range_var[0][0] - 1
     max_range_index = range_var[-1][0]
     attenuated_backscatter = f.variables['attenuated_backscatter'][:]
+    temp = attenuated_backscatter[:]
+    bottom_ab = [
+        [0 if y[i] <= 6e-5 or i > min_range_index else y[i] for i in range(len(y))]
+        for y in temp]
     attenuated_backscatter = [
         [0 if y[i] <= 6e-5 or (min_range_index >= i or i >= max_range_index) else y[i] for i in range(len(y))]
         for y in attenuated_backscatter]
     radial_velocity = f.variables['radial_velocity'][:]
 
-    cloud = []
-    removed_rows = []
-    for i in range(len(attenuated_backscatter)):
-        cloud_row = []
-        for j in range(len(attenuated_backscatter[i])):
-            if attenuated_backscatter[i][j] != 0:
-                cloud_row.append((range_var[j - min_range_index][1], radial_velocity[i][j - min_range_index]))
-        if cloud_row:
-            cloud.append(cloud_row)
-        else:
-            removed_rows.append(i)
-
+    cloud, removed_rows = threshold_cloud(attenuated_backscatter, range_var, radial_velocity, min_range_index)
+    bottom_cloud, _ = threshold_cloud(bottom_ab, bottom_range_var, radial_velocity, 0)
     adjusted_time = []
     for i in range(len(time)):
         if i not in removed_rows:
@@ -56,11 +55,50 @@ def readDLData(date, time):
     return_dict['radial_velocity'] = radial_velocity
     return_dict['range'] = range_var
     return_dict['cloud'] = cloud
-
+    return_dict['bottom_cloud'] = bottom_cloud
+    return_dict['bottom_range'] = bottom_range_var
     f.close()
     return return_dict
 
+
+def threshold_cloud(attenuated_backscatter, range_var, radial_velocity, min_range_index):
+    cloud = []
+    removed_rows = []
+    for i in range(len(attenuated_backscatter)):
+        cloud_row = []
+        for j in range(len(attenuated_backscatter[i])):
+            if attenuated_backscatter[i][j] != 0:
+                cloud_row.append((range_var[j - min_range_index][1], radial_velocity[i][j - min_range_index]))
+        if cloud_row:
+            cloud.append(cloud_row)
+        else:
+            removed_rows.append(i)
+
+    return cloud, removed_rows
+
+def fullCloudDataset(date, time_ld, time_sonde):
+    """
+    :param date: Provide date in the following format as a string: YearDayMonth. Ex: 20180504 -> 5-4-2018
+    :param time_ld: Provide time in the following format as a string: HourMinuteSecond Ex: 113000 -> 11:30
+    :param time_sonde: Provide time in the following format as a string: HourMinuteSecond Ex: 113000 -> 11:30
+   :return: A dictionary with the following structure:
+    "cloud" : an array of tuples with the structure (time (s), altitude (m), radial_velocity (m/s)
+    "bottom_cloud" : 2D array with tuple data of the height and velocity of the clouds, with height < 500m
+    NOTE: "bottom_cloud" is often empty so include checks for this case
+    """
+    dl_data = readDLData(date, time_ld)
+    return_dict = {}
+    return_dict['cloud'] = clusterClouds(date, time_ld, time_sonde)
+    return_dict['bottom_cloud'] = dl_data['bottom_cloud']
+
+    return return_dict
 def clusterClouds(date, time_ld, time_sonde):
+    """
+    :param date: Provide date in the following format as a string: YearDayMonth. Ex: 20180504 -> 5-4-2018
+    :param time_ld: Provide time in the following format as a string: HourMinuteSecond Ex: 113000 -> 11:30
+    :param time_sonde: Provide time in the following format as a string: HourMinuteSecond Ex: 113000 -> 11:30
+    :return: an array of tuples with the structure (time (s), altitude (m), radial_velocity (m/s)
+    """
     data_ld = readDLData(date, time_ld)
     data_sonde = readSondeData(date, time_sonde)
 
@@ -133,6 +171,7 @@ def condense_common_values(list):
         if x not in condensed:
             condensed.append(x)
     return condensed
+
 def plotCloud(date, time_ld, time_sonde):
     # threshold separation = 100m
     # threshold valid cloud > 300m -> 5000m
@@ -204,6 +243,32 @@ def plotCloud(date, time_ld, time_sonde):
     return 0
 
 
+def plotBottomCloud(date, time_ld, time_sonde):
+    # threshold separation = 100m
+    # threshold valid cloud > 300m -> 5000m
+    # v = sqrt(u^2 + v^2)
+    # take radiosonde closest to the above time
+    data_ld = readDLData(date, time_ld)
+    data_sonde = readSondeData(date, time_sonde)
+
+    if not data_ld['bottom_cloud']:
+        return []
+
+    plt.ylabel('Height (m)')
+    plt.xlabel('Time (h)')
+    y = [item[0] for sublist in data_ld['bottom_cloud'] for item in sublist]
+
+    x = []
+    for i in range(len(data_ld['time'])):
+        for _ in range(len(data_ld['bottom_cloud'][i])):
+            x.append(data_ld['time'][i] / 3600)
+
+    #print(clusters_plot)
+    plt.scatter([3600*element for element in x], y, cmap='rainbow', marker='.')  #, c=kmeans.labels_, cmap='rainbow')
+    #plt.scatter(x_plot, y_plot, c=clusters_plot, cmap='rainbow')
+    plt.show()
+    return 0
+
 def map_clusters(cloud_height, altitude, time, t_s, t_ll, t_lh):
     color_map = [1]
     curr_cluster = 1
@@ -263,6 +328,7 @@ def readSondeData(date, time):
     return_dict = {}
     temp = f.variables['alt'][:]
     removed_indices = []
+
     altitude = []
     for i in range(len(temp)):
         a = temp[i]
@@ -293,9 +359,9 @@ def readCOGSData():
     return 0
 
 date = 20180504
-time_ld = 200117
-#time_ld = 210116
+#time_ld = 200117
+time_ld = 210116
 time_sonde = 233600
-#plotCloud(date, time_ld, time_sonde)
-temp = clusterClouds(date, time_ld, time_sonde)
+#plotBottomCloud(date, time_ld, time_sonde)
+temp = fullCloudDataset(date, time_ld, time_sonde)
 print(temp)
