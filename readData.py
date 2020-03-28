@@ -15,9 +15,7 @@ def readDLData(date, time):
     "range" : height which the DL return belongs to
     "radial_velocity" : 2D array of velocities
     "cloud" : 2D array with tuple data of the height and velocity of the clouds
-    "bottom_cloud" : same format as cloud, but with height < 500m
-    "bottom_range" : same format as range, but with height < 500m
-    NOTE: "bottom_cloud" is often empty so include checks for this case
+    "base_rv" :  radial velocity at cloud base of lowest cloud
     """
     filename = "sgpdlfptC1.b1." + str(date) + "." + str(time) + ".cdf"
     f = Dataset(filename, "r", format="NETCDF4")
@@ -25,43 +23,51 @@ def readDLData(date, time):
 
     time = f.variables['time'][:]
     range_var = list(enumerate(f.variables['range'][:]))
-    temp = range_var[:]
-    bottom_range_var = [r for r in temp if r[1] < 500]
     range_var = [r for r in range_var if 500 < r[1] < 5000]
 
     min_range_index = range_var[0][0] - 1
     max_range_index = range_var[-1][0]
+
     attenuated_backscatter = f.variables['attenuated_backscatter'][:]
-    temp = attenuated_backscatter[:]
-    bottom_ab = [
-        [0 if y[i] <= 6e-5 or i > min_range_index else y[i] for i in range(len(y))]
-        for y in temp]
     attenuated_backscatter = [
         [0 if y[i] <= 6e-5 or (min_range_index >= i or i >= max_range_index) else y[i] for i in range(len(y))]
         for y in attenuated_backscatter]
     radial_velocity = f.variables['radial_velocity'][:]
 
-    cloud, removed_rows = threshold_cloud(attenuated_backscatter, range_var, radial_velocity, min_range_index)
-    bottom_cloud, _ = threshold_cloud(bottom_ab, bottom_range_var, radial_velocity, 0)
+    cloud, removed_rows = prune_backscatter(attenuated_backscatter, range_var[:], radial_velocity, min_range_index)
+    base_height = find_min_cloud(cloud)
+
+    base_index = find_approx_value_index(f.variables['range'][:], base_height, 0)
+    if base_index == -1:
+        print("failed to find range")
+
+    adjusted_radial_velocity = []
     adjusted_time = []
     for i in range(len(time)):
         if i not in removed_rows:
             adjusted_time.append(time[i])
+            adjusted_radial_velocity.append(radial_velocity[i])
+
+    base_rv = [sublst[:base_index] for sublst in adjusted_radial_velocity]
+
     # attenuated_backscatter = [[(range_var[i][1], y[i]) for i in y if y[i] != 0] for y in attenuated_backscatter]
     # range_var = [r[1] for r in range_var]
 
     # return_dict['attenuated_backscatter'] = attenuated_backscatter
     return_dict['time'] = adjusted_time
     return_dict['radial_velocity'] = radial_velocity
-    return_dict['range'] = range_var
+    return_dict['range'] = [r[1] for r in range_var]
     return_dict['cloud'] = cloud
-    return_dict['bottom_cloud'] = bottom_cloud
-    return_dict['bottom_range'] = bottom_range_var
+    return_dict['base_rv'] = base_rv
+
     f.close()
     return return_dict
 
+def find_min_cloud(lst):
+    lst = [item for sublist in lst for item in sublist]
+    return min([item[0] for item in lst])
 
-def threshold_cloud(attenuated_backscatter, range_var, radial_velocity, min_range_index):
+def prune_backscatter(attenuated_backscatter, range_var, radial_velocity, min_range_index):
     cloud = []
     removed_rows = []
     for i in range(len(attenuated_backscatter)):
@@ -81,15 +87,16 @@ def fullCloudDataset(date, time_ld, time_sonde):
     :param date: Provide date in the following format as a string: YearDayMonth. Ex: 20180504 -> 5-4-2018
     :param time_ld: Provide time in the following format as a string: HourMinuteSecond Ex: 113000 -> 11:30
     :param time_sonde: Provide time in the following format as a string: HourMinuteSecond Ex: 113000 -> 11:30
-   :return: A dictionary with the following structure:
+    :return: A dictionary with the following structure:
     "cloud" : an array of tuples with the structure (time (s), altitude (m), radial_velocity (m/s)
-    "bottom_cloud" : 2D array with tuple data of the height and velocity of the clouds, with height < 500m
+    "base_radial_velocity" : 2D array with tuple data of the height and velocity at height less than lowest cloud
     NOTE: "bottom_cloud" is often empty so include checks for this case
+
     """
     dl_data = readDLData(date, time_ld)
     return_dict = {}
     return_dict['cloud'] = clusterClouds(date, time_ld, time_sonde)
-    return_dict['bottom_cloud'] = dl_data['bottom_cloud']
+    return_dict['base_radial_velocity'] = dl_data['base_rv']
 
     return return_dict
 def clusterClouds(date, time_ld, time_sonde):
@@ -242,33 +249,6 @@ def plotCloud(date, time_ld, time_sonde):
     plt.show()
     return 0
 
-
-def plotBottomCloud(date, time_ld, time_sonde):
-    # threshold separation = 100m
-    # threshold valid cloud > 300m -> 5000m
-    # v = sqrt(u^2 + v^2)
-    # take radiosonde closest to the above time
-    data_ld = readDLData(date, time_ld)
-    data_sonde = readSondeData(date, time_sonde)
-
-    if not data_ld['bottom_cloud']:
-        return []
-
-    plt.ylabel('Height (m)')
-    plt.xlabel('Time (h)')
-    y = [item[0] for sublist in data_ld['bottom_cloud'] for item in sublist]
-
-    x = []
-    for i in range(len(data_ld['time'])):
-        for _ in range(len(data_ld['bottom_cloud'][i])):
-            x.append(data_ld['time'][i] / 3600)
-
-    #print(clusters_plot)
-    plt.scatter([3600*element for element in x], y, cmap='rainbow', marker='.')  #, c=kmeans.labels_, cmap='rainbow')
-    #plt.scatter(x_plot, y_plot, c=clusters_plot, cmap='rainbow')
-    plt.show()
-    return 0
-
 def map_clusters(cloud_height, altitude, time, t_s, t_ll, t_lh):
     color_map = [1]
     curr_cluster = 1
@@ -296,7 +276,7 @@ def map_clusters(cloud_height, altitude, time, t_s, t_ll, t_lh):
 
 def find_approx_value_index(list, value, threshold):
     for i in range(len(list)):
-        if value - threshold < list[i] < value + threshold:
+        if value - threshold <= list[i] <= value + threshold:
             return i
     return -1
 
