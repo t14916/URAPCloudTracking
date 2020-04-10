@@ -91,7 +91,6 @@ def fullCloudDataset(date, time_ld, time_sonde):
     "cloud" : an array of tuples with the structure (time (s), altitude (m), radial_velocity (m/s)
     "base_radial_velocity" : 2D array with tuple data of the height and velocity at height less than lowest cloud
     NOTE: "bottom_cloud" is often empty so include checks for this case
-
     """
     dl_data = readDLData(date, time_ld)
     return_dict = {}
@@ -99,6 +98,13 @@ def fullCloudDataset(date, time_ld, time_sonde):
     return_dict['base_radial_velocity'] = dl_data['base_rv']
 
     return return_dict
+
+
+def secondsToHours(time):
+    return time/3600
+def hoursToSeconds(time):
+    return time*3600
+
 def clusterClouds(date, time_ld, time_sonde):
     """
     :param date: Provide date in the following format as a string: YearDayMonth. Ex: 20180504 -> 5-4-2018
@@ -194,7 +200,7 @@ def plotCloud(date, time_ld, time_sonde):
     x = []
     for i in range(len(data_ld["time"])):
         for _ in range(len(data_ld["cloud"][i])):
-            x.append(data_ld["time"][i] / 3600)
+            x.append(secondsToHours(data_ld["time"][i]))
 
     u_wind = []
     v_wind = []
@@ -220,7 +226,7 @@ def plotCloud(date, time_ld, time_sonde):
     t_lh = [5000 / v for v in velocity]
 
     #print(t_s)
-    clusters = map_clusters(y, data_sonde["altitude"], [3600 * element for element in x], t_s, t_ll, t_lh)
+    clusters = map_clusters(y, data_sonde["altitude"], [hoursToSeconds(element) for element in x], t_s, t_ll, t_lh)
     #print(len(clusters))
     #print(clusters)
 
@@ -244,10 +250,19 @@ def plotCloud(date, time_ld, time_sonde):
             clusters_plot.append(clusters[i])
 
     #print(clusters_plot)
-    plt.scatter([3600*element for element in x], y, c=clusters, cmap='rainbow', marker='.')  #, c=kmeans.labels_, cmap='rainbow')
-    #plt.scatter(x_plot, y_plot, c=clusters_plot, cmap='rainbow')
+    #plt.scatter([hoursToSeconds(element) for element in x], y, c=clusters, cmap='rainbow', marker='.')  #, c=kmeans.labels_, cmap='rainbow')
+    plt.scatter(x_plot, y_plot, c=clusters_plot, cmap='rainbow')
+    point = plt.ginput(1)[0]
+    x_cogs = point[0]
+    print(x_cogs)
+    cogs_cluster = clusters_plot[find_closest_value_index(x_plot, x_cogs)]
+    t1 = x_plot[find_approx_value_index(clusters_plot, cogs_cluster, 0)]#function finds the first index with the value
+    t2 = x_plot[find_approx_value_index(clusters_plot, cogs_cluster + 1, 0) - 1]
+    print(t1)
+    print(t2)
     plt.show()
-    return 0
+    return t1, t2
+
 
 def map_clusters(cloud_height, altitude, time, t_s, t_ll, t_lh):
     color_map = [1]
@@ -274,11 +289,23 @@ def map_clusters(cloud_height, altitude, time, t_s, t_ll, t_lh):
             t_start = i
     return color_map
 
-def find_approx_value_index(list, value, threshold):
-    for i in range(len(list)):
-        if value - threshold <= list[i] <= value + threshold:
+
+def find_approx_value_index(lst, value, threshold):
+    for i in range(len(lst)):
+        if value - threshold <= lst[i] <= value + threshold:
             return i
     return -1
+
+
+def find_closest_value_index(lst, value):
+    closest = 0
+    closest_dist = abs(value - lst[0])
+    for i in range(len(lst)):
+        if abs(value - lst[i]) < closest_dist:
+            closest = i
+            closest_dist = value - lst[i]
+    return closest
+
 
 def optimal_k(points, kmax):
     # Using silhouette score to determine optimal k value for kmeans
@@ -342,6 +369,6 @@ date = 20180504
 #time_ld = 200117
 time_ld = 210116
 time_sonde = 233600
-#plotBottomCloud(date, time_ld, time_sonde)
-temp = fullCloudDataset(date, time_ld, time_sonde)
-print(temp)
+plotCloud(date, time_ld, time_sonde)
+#temp = fullCloudDataset(date, time_ld, time_sonde)
+#print(temp)
