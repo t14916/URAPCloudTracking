@@ -256,8 +256,8 @@ def plotCloud(date, time_ld, time_sonde):
     x_cogs = point[0]
     print(x_cogs)
     cogs_cluster = clusters_plot[find_closest_value_index(x_plot, x_cogs)]
-    t1 = x_plot[find_approx_value_index(clusters_plot, cogs_cluster, 0)]#function finds the first index with the value
-    t2 = x_plot[find_approx_value_index(clusters_plot, cogs_cluster + 1, 0) - 1]
+    t1 = hoursToSeconds(x_plot[find_approx_value_index(clusters_plot, cogs_cluster, 0)])#function finds the first index with the value
+    t2 = hoursToSeconds(x_plot[find_approx_value_index(clusters_plot, cogs_cluster + 1, 0) - 1])
     print(t1)
     print(t2)
     plt.show()
@@ -366,8 +366,8 @@ def readCOGSData():
     return 0
 
 date = 20180504
-#time_ld = 200117
-time_ld = 210116
+time_ld = 200117
+#time_ld = 210116
 time_sonde = 233600
 plotCloud(date, time_ld, time_sonde)
 #temp = fullCloudDataset(date, time_ld, time_sonde)
