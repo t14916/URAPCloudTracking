@@ -63,9 +63,11 @@ def readDLData(date, time):
     f.close()
     return return_dict
 
+
 def find_min_cloud(lst):
     lst = [item for sublist in lst for item in sublist]
     return min([item[0] for item in lst])
+
 
 def prune_backscatter(attenuated_backscatter, range_var, radial_velocity, min_range_index):
     cloud = []
@@ -82,6 +84,7 @@ def prune_backscatter(attenuated_backscatter, range_var, radial_velocity, min_ra
 
     return cloud, removed_rows
 
+
 def fullCloudDataset(date, time_ld, time_sonde):
     """
     :param date: Provide date in the following format as a string: YearDayMonth. Ex: 20180504 -> 5-4-2018
@@ -93,17 +96,18 @@ def fullCloudDataset(date, time_ld, time_sonde):
     NOTE: "bottom_cloud" is often empty so include checks for this case
     """
     dl_data = readDLData(date, time_ld)
-    return_dict = {}
-    return_dict['cloud'] = clusterClouds(date, time_ld, time_sonde)
-    return_dict['base_radial_velocity'] = dl_data['base_rv']
+    return_dict = {'cloud': clusterClouds(date, time_ld, time_sonde), 'base_radial_velocity': dl_data['base_rv']}
 
     return return_dict
 
 
 def secondsToHours(time):
-    return time/3600
+    return time / 3600
+
+
 def hoursToSeconds(time):
-    return time*3600
+    return time * 3600
+
 
 def clusterClouds(date, time_ld, time_sonde):
     """
@@ -112,11 +116,13 @@ def clusterClouds(date, time_ld, time_sonde):
     :param time_sonde: Provide time in the following format as a string: HourMinuteSecond Ex: 113000 -> 11:30
     :return: an array of tuples with the structure (time (s), altitude (m), radial_velocity (m/s)
     """
+    # threshold separation = 100m
+    # threshold valid cloud > 300m -> 5000m
+    # v = sqrt(u^2 + v^2)
+    # take radiosonde closest to the above time
     data_ld = readDLData(date, time_ld)
     data_sonde = readSondeData(date, time_sonde)
 
-    plt.ylabel('Height (m)')
-    plt.xlabel('Time (h)')
     y = [item[0] for sublist in data_ld["cloud"] for item in sublist]
     rv = [item[1] for sublist in data_ld["cloud"] for item in sublist]
 
@@ -150,7 +156,7 @@ def clusterClouds(date, time_ld, time_sonde):
 
     clusters = map_clusters(y, data_sonde["altitude"], x, t_s, t_ll, t_lh)
     groups = condense_common_values(clusters)
-
+    groups = [g for g in groups if g != 0]
     condensed_x = []
     condensed_y = []
     condensed_rv = []
@@ -163,8 +169,9 @@ def clusterClouds(date, time_ld, time_sonde):
             condensed_clusters.append(clusters[i])
 
     temp = zip(condensed_clusters, condensed_x, condensed_y, condensed_rv)
-    #print(temp)
-    #print(condensed_rv)
+    # print(temp)
+    # print(condensed_rv)
+    print(groups)
     cloud_data = []
     for i in range(len(groups)):
         cloud_data.append([])
@@ -185,83 +192,50 @@ def condense_common_values(list):
             condensed.append(x)
     return condensed
 
-def plotCloud(date, time_ld, time_sonde):
-    # threshold separation = 100m
-    # threshold valid cloud > 300m -> 5000m
-    # v = sqrt(u^2 + v^2)
-    # take radiosonde closest to the above time
-    data_ld = readDLData(date, time_ld)
-    data_sonde = readSondeData(date, time_sonde)
 
+def plotCloud(date, time_ld, time_sonde):
+    clouds = clusterClouds(date, time_ld, time_sonde)
+    clusters_plot = [id for c in enumerate(clouds) for id in [c[0]] * len(c[1])]
     plt.ylabel('Height (m)')
     plt.xlabel('Time (h)')
-    y = [item[0] for sublist in data_ld["cloud"] for item in sublist]
+    x_plot = [c[0] for cloud in clouds for c in cloud]
+    y_plot = [c[1] for cloud in clouds for c in cloud]
 
-    x = []
-    for i in range(len(data_ld["time"])):
-        for _ in range(len(data_ld["cloud"][i])):
-            x.append(secondsToHours(data_ld["time"][i]))
-
-    u_wind = []
-    v_wind = []
-    for i in range(len(y)):
-        index = find_approx_value_index(data_sonde["altitude"], y[i], 5)
-        if index == -1:
-            print("failed to find range")
-        u_wind.append(data_sonde["u_wind"][index])
-        v_wind.append(data_sonde["v_wind"][index])
-
-    velocity = []
-    for i in range(len(u_wind)):
-        velocity.append(math.sqrt(u_wind[i]**2 + v_wind[i]**2))
-
-    #print(velocity)
-    #100m separation using speed
-    t_s = [200 / v for v in velocity]
-
-    #300m mininum length
-    t_ll = [300 / v for v in velocity]
-
-    #5000m maximum length
-    t_lh = [5000 / v for v in velocity]
-
-    #print(t_s)
-    clusters = map_clusters(y, data_sonde["altitude"], [hoursToSeconds(element) for element in x], t_s, t_ll, t_lh)
-    #print(len(clusters))
-    #print(clusters)
-
-    # KMeans code: NOTE -> does not work that well with time in hours
-    #x_arr = np.asarray(x)
-    #y_arr = np.asarray(y)
-    #x_arr = x_arr.reshape(-1, 1)
-    #y_arr = y_arr.reshape(-1, 1)
-    #k_arr = np.hstack((x_arr, y_arr))
-    #k = optimal_k(k_arr, 10)
-    #kmeans = KMeans(n_clusters=k).fit(k_arr)
-
-    #print(x)
-    x_plot = []
-    y_plot = []
-    clusters_plot = []
-    for i in range(len(clusters)):
-        if clusters[i] != 0:
-            x_plot.append(x[i])
-            y_plot.append(y[i])
-            clusters_plot.append(clusters[i])
-
-    #print(clusters_plot)
-    #plt.scatter([hoursToSeconds(element) for element in x], y, c=clusters, cmap='rainbow', marker='.')  #, c=kmeans.labels_, cmap='rainbow')
     plt.scatter(x_plot, y_plot, c=clusters_plot, cmap='rainbow')
     point = plt.ginput(1)[0]
-    x_cogs = point[0]
-    print(x_cogs)
-    cogs_cluster = clusters_plot[find_closest_value_index(x_plot, x_cogs)]
-    t1 = hoursToSeconds(x_plot[find_approx_value_index(clusters_plot, cogs_cluster, 0)])#function finds the first index with the value
-    t2 = hoursToSeconds(x_plot[find_approx_value_index(clusters_plot, cogs_cluster + 1, 0) - 1])
+    x_input = point[0]
+    print(x_input)
+    cluster_input = clusters_plot[find_closest_value_index(x_plot, x_input)]
+    t1 = hoursToSeconds(x_plot[find_approx_value_index(clusters_plot, cluster_input,
+                                                       0)])  # function finds the first index with the value
+    t2 = hoursToSeconds(x_plot[find_approx_value_index(clusters_plot, cluster_input + 1, 0) - 1])
     print(t1)
     print(t2)
+    plt.close()
     plt.show()
+    plotCloudAndVelocity(cluster_input, clouds)
     return t1, t2
+
+
+def plotCloudAndVelocity(cloud_id, clouds):
+    # cloud data should be a tuple as specified as the return value in clusterClouds
+
+    cloud = clouds[cloud_id]
+    time_plot = [secondsToHours(c[0]) for c in cloud]
+    height_plot = [c[1] for c in cloud]
+    rv_plot = [c[2] for c in cloud]
+    plt.subplots(2, 1)
+    plt.subplot(211)
+    plt.ylabel('Height (m)')
+    plt.xlabel('Time (h)')
+    plt.scatter(time_plot, height_plot)
+    plt.subplot(212)
+    plt.scatter(time_plot, rv_plot)
+    plt.ylabel('Radial Velocity (m/s)')
+    plt.xlabel('Time (h)')
+    plt.show()
+
+    return 0
 
 
 def map_clusters(cloud_height, altitude, time, t_s, t_ll, t_lh):
@@ -274,7 +248,7 @@ def map_clusters(cloud_height, altitude, time, t_s, t_ll, t_lh):
         # print("({}, {})".format(time[i], cloud[i]))
         thresh_index = find_approx_value_index(altitude, cloud_height[i], 5)
         if time[i] - time[i - 1] < t_s[thresh_index] and time[i] - time[t_start] < t_lh[thresh_index]:
-             color_map.append(curr_cluster)
+            color_map.append(curr_cluster)
         else:
             # print("time before: {} time after: {}".format(time[i-1], time[i]))
             # print(i)
@@ -365,10 +339,11 @@ def readSondeData(date, time):
 def readCOGSData():
     return 0
 
+
 date = 20180504
-time_ld = 200117
-#time_ld = 210116
+# time_ld = 200117
+time_ld = 210116
 time_sonde = 233600
 plotCloud(date, time_ld, time_sonde)
-#temp = fullCloudDataset(date, time_ld, time_sonde)
-#print(temp)
+# temp = fullCloudDataset(date, time_ld, time_sonde)
+# print(temp)
