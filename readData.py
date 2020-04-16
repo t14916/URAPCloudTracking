@@ -198,7 +198,7 @@ def plotCloud(date, time_ld, time_sonde):
     clusters_plot = [id for c in enumerate(clouds) for id in [c[0]] * len(c[1])]
     plt.ylabel('Height (m)')
     plt.xlabel('Time (h)')
-    x_plot = [c[0] for cloud in clouds for c in cloud]
+    x_plot = [secondsToHours(c[0]) for cloud in clouds for c in cloud]
     y_plot = [c[1] for cloud in clouds for c in cloud]
 
     plt.scatter(x_plot, y_plot, c=clusters_plot, cmap='rainbow')
@@ -213,7 +213,7 @@ def plotCloud(date, time_ld, time_sonde):
     print(t2)
     plt.close()
     plt.show()
-    plotCloudAndVelocity(cluster_input, clouds)
+    plotCloudAndVelocity(cluster_input, clouds)(t1, t1 + 100)
     return t1, t2
 
 
@@ -224,18 +224,27 @@ def plotCloudAndVelocity(cloud_id, clouds):
     time_plot = [secondsToHours(c[0]) for c in cloud]
     height_plot = [c[1] for c in cloud]
     rv_plot = [c[2] for c in cloud]
-    plt.subplots(2, 1)
-    plt.subplot(211)
-    plt.ylabel('Height (m)')
-    plt.xlabel('Time (h)')
-    plt.scatter(time_plot, height_plot)
-    plt.subplot(212)
-    plt.scatter(time_plot, rv_plot)
-    plt.ylabel('Radial Velocity (m/s)')
-    plt.xlabel('Time (h)')
-    plt.show()
 
-    return 0
+    def plot(time_start, time_end):
+        region_highlight = [0]*len(time_plot)
+        for i in range(len(region_highlight)):
+            if time_start <= hoursToSeconds(time_plot[i]) <= time_end:
+                region_highlight[i] = 1
+        plt.subplots(2, 1)
+        plt.subplot(211)
+        plt.ylabel('Height (m)')
+        plt.xlabel('Time (h)')
+        # look for colormap options => cold to warm colors (low index cold, high index warm)
+        plt.scatter(time_plot, height_plot, c=region_highlight, cmap='rainbow')
+        plt.subplot(212)
+        # Can change weighting in cold to warm colormap w/ different contrast
+        # Allows us to differentiate between heights in the radial velocity => same color, but w/ different shade
+        plt.scatter(time_plot, rv_plot, c=region_highlight, cmap='rainbow')
+        plt.ylabel('Radial Velocity (m/s)')
+        plt.xlabel('Time (h)')
+        plt.show()
+
+    return plot
 
 
 def map_clusters(cloud_height, altitude, time, t_s, t_ll, t_lh):
