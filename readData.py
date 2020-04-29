@@ -224,22 +224,28 @@ def plotCloudAndVelocity(cloud_id, clouds):
     time_plot = [secondsToHours(c[0]) for c in cloud]
     height_plot = [c[1] for c in cloud]
     rv_plot = [c[2] for c in cloud]
-
+    height_heatmap = [100] * len(time_plot)
+    max_height = max(height_plot)
+    min_height = min(height_plot)
+    adjustment_denom = max_height - min_height
+    for i in range(len(height_heatmap)):
+            adjustment = (height_plot[i] - min_height) / adjustment_denom
+            height_heatmap[i] = height_heatmap[i] * adjustment
     def plot(time_start, time_end):
-        region_highlight = [0]*len(time_plot)
-        for i in range(len(region_highlight)):
-            if time_start <= hoursToSeconds(time_plot[i]) <= time_end:
-                region_highlight[i] = 1
+        time_start = secondsToHours(time_start)
+        time_end = secondsToHours(time_end)
         plt.subplots(2, 1)
         plt.subplot(211)
+        plt.axvspan(time_start, time_end, facecolor='g', alpha=0.5)
         plt.ylabel('Height (m)')
         plt.xlabel('Time (h)')
         # look for colormap options => cold to warm colors (low index cold, high index warm)
-        plt.scatter(time_plot, height_plot, c=region_highlight, cmap='rainbow')
+        plt.scatter(time_plot, height_plot, c=height_heatmap, cmap='plasma')
         plt.subplot(212)
+        plt.axvspan(time_start, time_end, facecolor='g', alpha=0.5)
         # Can change weighting in cold to warm colormap w/ different contrast
         # Allows us to differentiate between heights in the radial velocity => same color, but w/ different shade
-        plt.scatter(time_plot, rv_plot, c=region_highlight, cmap='rainbow')
+        plt.scatter(time_plot, rv_plot, c=height_heatmap, cmap='plasma')
         plt.ylabel('Radial Velocity (m/s)')
         plt.xlabel('Time (h)')
         plt.show()
